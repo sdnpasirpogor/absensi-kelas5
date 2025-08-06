@@ -1471,7 +1471,7 @@
             }
         }
         
-        // Fungsi ekspor ke Excel
+        // Fungsi ekspor ke Excel - PERBAIKAN DISINI
         function exportToExcel() {
             if (!window.rekapDataForExport || window.rekapDataForExport.length === 0) {
                 alert('Tidak ada data untuk diekspor!');
@@ -1505,6 +1505,20 @@
             
             // Tambahkan data (mulai dari baris 7)
             XLSX.utils.sheet_add_json(ws, window.rekapDataForExport, { origin: "A7", skipHeader: true });
+            
+            // Tambahkan baris kosong dan tanda tangan
+            const startRow = 7 + window.rekapDataForExport.length + 2; // 2 baris kosong setelah tabel
+            XLSX.utils.sheet_add_aoa(ws, [
+                [""], // Baris kosong 1
+                [""], // Baris kosong 2
+                ["Mengetahui"],
+                ["Walikelas 5"],
+                [""], // Baris kosong 1
+                [""], // Baris kosong 2
+                [""], // Baris kosong 3
+                [""], // Baris kosong 4
+                ["Lita Purnama, S.Pd"]
+            ], { origin: `A${startRow}` });
             
             // Set lebar kolom
             const colWidths = [
@@ -1543,6 +1557,9 @@
                 font: { bold: true }, 
                 fill: { fgColor: { rgb: "4ECDC4" } } 
             };
+            const tandaTanganStyle = {
+                font: { bold: true }
+            };
             
             // Terapkan style
             ws['A1'].s = titleStyle;
@@ -1555,27 +1572,19 @@
                 ws[cell].s = headerStyle;
             }
             
+            // Style untuk tanda tangan
+            const tandaTanganRow = startRow + 8; // Baris tanda tangan
+            const tandaTanganCell = `A${tandaTanganRow}`;
+            if (!ws[tandaTanganCell]) ws[tandaTanganCell] = {};
+            if (!ws[tandaTanganCell].s) ws[tandaTanganCell].s = {};
+            ws[tandaTanganCell].s = tandaTanganStyle;
+            
             // Tambahkan ke workbook
             XLSX.utils.book_append_sheet(wb, ws, "Rekap Absensi");
             
-            // Simpan file
+            // Simpan file - HANYA SATU KALI
             const fileName = `Rekap_Absensi_${bulanNames[bulan]}_${tahun}.xlsx`;
             XLSX.writeFile(wb, fileName);
-            
-            // Auto-open file setelah 1 detik
-            setTimeout(() => {
-                const blob = new Blob([XLSX.write(wb, {bookType:'xlsx', type:'array'})], {type: "application/octet-stream"});
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = fileName;
-                document.body.appendChild(a);
-                a.click();
-                setTimeout(() => {
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                }, 100);
-            }, 1000);
         }
     </script>
 </body>
