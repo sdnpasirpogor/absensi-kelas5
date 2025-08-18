@@ -131,7 +131,7 @@
 
         .slide-container.active {
             display: block;
-            animation: slideIn 0.5s ease-out;
+            animation: slideIn 0.2s ease-out;
         }
 
         @keyframes slideIn {
@@ -560,6 +560,7 @@
             from {
                 opacity: 0;
             }
+
             to {
                 opacity: 1;
             }
@@ -584,6 +585,7 @@
                 transform: scale(0.7) translateY(-50px);
                 opacity: 0;
             }
+
             to {
                 transform: scale(1) translateY(0);
                 opacity: 1;
@@ -772,6 +774,7 @@
             from {
                 width: 100%;
             }
+
             to {
                 width: 0%;
             }
@@ -811,8 +814,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .loading-text {
@@ -829,10 +837,24 @@
         }
 
         @keyframes loadingDots {
-            0%, 20% { content: ''; }
-            40% { content: '.'; }
-            60% { content: '..'; }
-            80%, 100% { content: '...'; }
+
+            0%,
+            20% {
+                content: '';
+            }
+
+            40% {
+                content: '.';
+            }
+
+            60% {
+                content: '..';
+            }
+
+            80%,
+            100% {
+                content: '...';
+            }
         }
 
         .skeleton-loader {
@@ -846,6 +868,7 @@
             0% {
                 background-position: -200% 0;
             }
+
             100% {
                 background-position: 200% 0;
             }
@@ -907,6 +930,7 @@
             from {
                 width: 100%;
             }
+
             to {
                 width: 0%;
             }
@@ -1223,7 +1247,7 @@
                     Username atau Password salah!
                 </div>
             </form>
-            <div class="footer">© 2025 SDN 1 PASIRPOGOR - Sistem Absensi Digital</div>
+            <div class="footer">© 2025 SDN 1 Pasirpogor - Sistem Presensi Digital</div>
         </div>
 
         <!-- Home Page -->
@@ -1357,13 +1381,13 @@
         let undoTimeout = null;
 
         // ================= ENHANCED UI FUNCTIONS =================
-        
+
         // Toast Notifications
         function showToast(type, title, message, duration = 4000) {
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
             toast.className = `toast ${type}`;
-            
+
             const icons = {
                 success: 'fas fa-check-circle',
                 error: 'fas fa-exclamation-circle',
@@ -1404,7 +1428,7 @@
         function showCustomModal(options) {
             const modal = document.getElementById('customModal');
             const content = document.getElementById('customModalContent');
-            
+
             const {
                 type = 'info',
                 title,
@@ -1452,7 +1476,7 @@
             });
 
             modal.classList.add('show');
-            
+
             return new Promise((resolve) => {
                 const originalHide = window.hideCustomModal;
                 window.hideCustomModal = () => {
@@ -1530,7 +1554,7 @@
                         document.getElementById('btnKirimAbsen').click();
                     }
                 }
-                
+
                 // Ctrl+H - Hadir Semua
                 if (e.ctrlKey && e.key === 'h') {
                     e.preventDefault();
@@ -1538,7 +1562,7 @@
                         document.getElementById('btnHadirSemua').click();
                     }
                 }
-                
+
                 // F5 - Refresh Data (prevent default and use custom refresh)
                 if (e.key === 'F5') {
                     e.preventDefault();
@@ -1546,7 +1570,7 @@
                         refreshAttendanceData();
                     }
                 }
-                
+
                 // Show shortcuts hint on Alt key
                 if (e.key === 'Alt') {
                     document.getElementById('shortcutsHint').classList.add('show');
@@ -1563,7 +1587,7 @@
         function refreshAttendanceData() {
             showLoading('Memuat ulang data...');
             loadAttendanceForDate(selectedDate).then(() => {
-                showToast('success', 'Data Dimuat Ulang', 'Data absensi berhasil dimuat ulang');
+                showToast('success', 'Data Dimuat Ulang', 'Data presensiberhasil dimuat ulang');
             });
         }
 
@@ -1598,7 +1622,7 @@
                 if (username === 'lita' && password === 'kelas5') {
                     showSlide('home-page');
                     errorMsg.style.display = 'none';
-                    showToast('success', 'Login Berhasil', 'Selamat datang di sistem absensi digital!');
+                    showToast('success', 'Login Berhasil', 'Selamat datang di sistem presensi digital!');
                 } else {
                     errorMsg.style.display = 'block';
                     document.getElementById('password').value = '';
@@ -1634,7 +1658,7 @@
                         {
                             text: 'Batal',
                             type: 'secondary',
-                            action: () => {}
+                            action: () => { }
                         }
                     ]
                 });
@@ -1828,7 +1852,7 @@
 
         function hapusSiswaWithConfirm(index) {
             const studentName = students[index];
-            
+
             showCustomModal({
                 type: 'warning',
                 title: 'Konfirmasi Hapus Siswa',
@@ -1845,7 +1869,7 @@
                     {
                         text: 'Batal',
                         type: 'secondary',
-                        action: () => {}
+                        action: () => { }
                     }
                 ]
             });
@@ -1875,8 +1899,8 @@
         // ================= ENHANCED ABSENSI =================
         async function loadAttendanceForDate(date) {
             const formattedDate = formatDate(date);
-            showLoading('Memuat data absensi...');
-            
+            showLoading('Memuat data presensi...');
+
             // Show skeleton loaders
             document.getElementById('students-container').innerHTML = generateSkeletonCards();
 
@@ -1917,7 +1941,7 @@
                 });
                 hideLoading();
                 generateStudentCards();
-                showToast('error', 'Error', 'Gagal memuat data absensi. Data default ditampilkan.');
+                showToast('error', 'Error', 'Gagal memuat data presensi... Data default ditampilkan.');
             }
         }
 
@@ -1981,7 +2005,7 @@
         function markAllPresentWithConfirm() {
             const totalStudents = students.length;
             const currentPresent = Object.values(attendanceData).filter(s => s === 'Hadir').length;
-            
+
             showCustomModal({
                 type: 'info',
                 title: 'Konfirmasi Hadir Semua',
@@ -1998,7 +2022,7 @@
                     {
                         text: 'Batal',
                         type: 'secondary',
-                        action: () => {}
+                        action: () => { }
                     }
                 ]
             });
@@ -2021,7 +2045,7 @@
                     attendanceData[student] = 'Hadir';
                 });
                 generateStudentCards();
-                
+
                 btn.innerHTML = '<i class="fas fa-check"></i> Berhasil!';
                 btn.style.background = 'linear-gradient(135deg, #06D6A0, #5DE5B4)';
 
@@ -2039,7 +2063,7 @@
         function submitAttendanceWithConfirm() {
             const formattedDate = formatDate(selectedDate);
             const summary = getSummaryData();
-            
+
             showCustomModal({
                 type: 'info',
                 title: 'Preview Data Absensi',
@@ -2066,7 +2090,7 @@
                     {
                         text: 'Batal',
                         type: 'secondary',
-                        action: () => {}
+                        action: () => { }
                     }
                 ]
             });
@@ -2074,7 +2098,7 @@
 
         function getSummaryData() {
             const summary = { hadir: 0, izin: 0, sakit: 0, alfa: 0, total: 0 };
-            
+
             Object.values(attendanceData).forEach(status => {
                 summary.total++;
                 if (status === 'Hadir') summary.hadir++;
@@ -2082,15 +2106,15 @@
                 else if (status === 'Sakit') summary.sakit++;
                 else summary.alfa++;
             });
-            
+
             return summary;
         }
 
         async function submitAttendance() {
             const formattedDate = formatDate(selectedDate);
             let sukses = 0, gagal = 0;
-            
-            showLoading('Mengirim data absensi...');
+
+            showLoading('Mengirim data presensi...');
 
             try {
                 const btn = document.getElementById('btnKirimAbsen');
@@ -2146,11 +2170,11 @@
 
             // Show results
             if (sukses > 0 && gagal === 0) {
-                showToast('success', 'Berhasil!', `Semua ${sukses} data absensi berhasil dikirim ke database`);
+                showToast('success', 'Berhasil!', `Semua ${sukses} data presensi berhasil dikirim ke database`);
             } else if (sukses > 0) {
                 showToast('warning', 'Sebagian Berhasil', `${sukses} berhasil, ${gagal} gagal dikirim`);
             } else {
-                showToast('error', 'Gagal!', 'Gagal mengirim data absensi. Silakan coba lagi.');
+                showToast('error', 'Gagal!', 'Gagal mengirim data presensi. Silakan coba lagi.');
             }
 
             await loadAttendanceForDate(selectedDate);
@@ -2212,7 +2236,7 @@
                 const data = await res.json();
 
                 if (!Array.isArray(data) || data.length === 0) {
-                    resultDiv.innerHTML = `<div class="no-data">Tidak ada data absensi untuk tanggal <b>${formattedDate}</b></div>`;
+                    resultDiv.innerHTML = `<div class="no-data">Tidak ada data presensi untuk tanggal <b>${formattedDate}</b></div>`;
                     return;
                 }
 
@@ -2338,7 +2362,7 @@
                 const allData = await res.json();
 
                 if (!Array.isArray(allData) || allData.length === 0) {
-                    resultDiv.innerHTML = `<div class="no-data">Tidak ada data absensi</div>`;
+                    resultDiv.innerHTML = `<div class="no-data">Tidak ada data presensi</div>`;
                     return;
                 }
 
@@ -2356,7 +2380,7 @@
                 if (filteredData.length === 0) {
                     resultDiv.innerHTML = `
                         <div class="no-data">
-                            Tidak ada data absensi untuk bulan <b>${bulan}-${tahun}</b>
+                            Tidak ada data presensi untuk bulan <b>${bulan}-${tahun}</b>
                         </div>
                     `;
                     return;
@@ -2574,7 +2598,10 @@
                     siswaDataHarian[nama][tanggal] = statusSingkat;
                 });
 
-                const headerRow = ["No.", "Nama Siswa", ...tanggalArray];
+                const headerRow = ["No.", "Nama Siswa", ...tanggalArray.map(tgl => {
+                    const [day, month, year] = tgl.split('-');
+                    return `${day}-${month}`;
+                })];
 
                 XLSX.utils.sheet_add_aoa(ws2, [
                     ["SD NEGERI 1 PASIRPOGOR"],
