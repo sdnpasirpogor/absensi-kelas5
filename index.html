@@ -1207,6 +1207,54 @@
                 display: none;
             }
         }
+
+        /* Realtime indicator */
+        .realtime-indicator {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--green-primary);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            z-index: 1500;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            opacity: 0;
+            transform: translateY(50px);
+            transition: all 0.3s;
+        }
+
+        .realtime-indicator.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .realtime-indicator.offline {
+            background: var(--error);
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: white;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 0.5;
+                transform: scale(1.2);
+            }
+        }
     </style>
 </head>
 
@@ -1331,12 +1379,205 @@
         <div><span class="shortcut-key">F5</span> Refresh Data</div>
     </div>
 
-    <script>
-        // ================= KONFIGURASI SHEETDB =================
-        const SHEETDB_URL = "https://sheetdb.io/api/v1/30bqetawgd29k";
-        const SHEETDB_URL_REKAP_BULANAN = `${SHEETDB_URL}/sheets/RekapBulanan`;
+    <!-- Realtime Indicator -->
+    <div class="realtime-indicator" id="realtimeIndicator">
+        <div class="pulse-dot"></div>
+        <span id="realtimeText">Terhubung</span>
+    </div>
 
-        // ================= DAFTAR SISWA KELAS 5 =================
+    <script>
+        // ================= KONFIGURASI SUPABASE =================
+        const SUPABASE_URL = 'https://dyzzqqjqkdhhtnmbibrm.supabase.co';
+        const SUPABASE_API_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR5enpxcWpxa2RoaHRubWJpYnJtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU4Mjc0MDEsImV4cCI6MjA3MTQwMzQwMX0.X1Ft3IZsHLn9R62wxp48dWdUAkmPqEeza67rAazhtMY';
+        const SUPABASE_REST_URL = `${SUPABASE_URL}/rest/v1`;
+
+        // Headers untuk Supabase API
+        const SUPABASE_HEADERS = {
+            'Content-Type': 'application/json',
+            'apikey': SUPABASE_API_KEY,
+            'Authorization': `Bearer ${SUPABASE_API_KEY}`
+        };
+
+        // ================= FUNGSI SUPABASE =================
+        
+        // Load students from Supabase
+        async function loadStudentsFromDB() {
+            try {
+                const response = await fetch(`${SUPABASE_REST_URL}/students?select=*&is_active=eq.true&order=nama.asc`, {
+                    method: 'GET',
+                    headers: SUPABASE_HEADERS
+                });
+
+                if (!response.ok) {
+                    throw new Error('Gagal load siswa dari database');
+                }
+
+                const data = await response.json();
+                students = data.map(student => student.nama);
+                
+                console.log('Students loaded:', students.length);
+                return students;
+            } catch (error) {
+                console.error('Error loading students:', error);
+                // Fallback ke data default jika gagal
+                students = [...defaultStudents];
+                showToast('warning', 'Fallback', 'Menggunakan data siswa default');
+                return students;
+            }
+        }
+
+        // Add new student to database
+        async function addStudentToDB(nama) {
+            try {
+                const response = await fetch(`${SUPABASE_REST_URL}/students`, {
+                    method: 'POST',
+                    headers: SUPABASE_HEADERS,
+                    body: JSON.stringify({
+                        nama: nama,
+                        is_active: true
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Gagal menambah siswa');
+                }
+
+                return await response.json();
+            } catch (error) {
+                console.error('Error adding student:', error);
+                throw error;
+            }
+        }
+
+        // Delete student from database
+        async function deleteStudentFromDB(nama) {
+            try {
+                const response = await fetch(`${SUPABASE_REST_URL}/students?nama=eq.${encodeURIComponent(nama)}`, {
+                    method: 'DELETE',
+                    headers: SUPABASE_HEADERS
+                });
+
+                if (!response.ok) {
+                    throw new Error('Gagal menghapus siswa');
+                }
+
+                return true;
+            } catch (error) {
+                console.error('Error deleting student:', error);
+                throw error;
+            }
+        }
+
+        // Helper function untuk format tanggal ke format database (YYYY-MM-DD)
+        function formatDateForDB(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        // ================= REALTIME SUPABASE =================
+        let supabaseClient = null;
+        let realtimeChannel = null;
+
+        // Initialize Supabase Realtime
+        function initSupabaseRealtime() {
+            // Create WebSocket connection for realtime
+            const wsUrl = `${SUPABASE_URL.replace('https://', 'wss://')}/realtime/v1/websocket?apikey=${SUPABASE_API_KEY}&vsn=1.0.0`;
+            
+            try {
+                const ws = new WebSocket(wsUrl);
+                
+                ws.onopen = () => {
+                    console.log('Realtime connected');
+                    showRealtimeStatus(true);
+                    
+                    // Join attendance channel
+                    const joinMsg = {
+                        topic: 'realtime:public:attendance',
+                        event: 'phx_join',
+                        payload: {},
+                        ref: Date.now()
+                    };
+                    ws.send(JSON.stringify(joinMsg));
+                };
+
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    
+                    // Handle realtime updates
+                    if (data.event === 'postgres_changes' && data.payload) {
+                        handleRealtimeUpdate(data.payload);
+                    }
+                };
+
+                ws.onclose = () => {
+                    console.log('Realtime disconnected');
+                    showRealtimeStatus(false);
+                    
+                    // Reconnect after 5 seconds
+                    setTimeout(() => {
+                        initSupabaseRealtime();
+                    }, 5000);
+                };
+
+                ws.onerror = (error) => {
+                    console.error('Realtime error:', error);
+                    showRealtimeStatus(false);
+                };
+
+                return ws;
+            } catch (error) {
+                console.error('Failed to initialize realtime:', error);
+                showRealtimeStatus(false);
+                return null;
+            }
+        }
+
+        // Handle realtime updates
+        function handleRealtimeUpdate(payload) {
+            console.log('Realtime update:', payload);
+            
+            if (payload.table === 'attendance') {
+                // Refresh attendance data for current date
+                const currentDate = formatDateForDB(selectedDate);
+                const recordDate = payload.new?.tanggal || payload.old?.tanggal;
+                
+                if (recordDate === currentDate) {
+                    loadAttendanceForDate(selectedDate);
+                    showToast('info', 'Data Diperbarui', 'Data presensi telah diperbarui secara realtime');
+                }
+            } else if (payload.table === 'students') {
+                // Refresh students list
+                loadStudentsFromDB().then(() => {
+                    generateStudentCards();
+                    showToast('info', 'Data Siswa Diperbarui', 'Daftar siswa telah diperbarui');
+                });
+            }
+        }
+
+        // Show realtime connection status
+        function showRealtimeStatus(connected) {
+            const indicator = document.getElementById('realtimeIndicator');
+            const text = document.getElementById('realtimeText');
+            
+            if (connected) {
+                indicator.classList.remove('offline');
+                indicator.classList.add('show');
+                text.textContent = 'Terhubung';
+                
+                setTimeout(() => {
+                    indicator.classList.remove('show');
+                }, 3000);
+            } else {
+                indicator.classList.add('offline');
+                indicator.classList.add('show');
+                text.textContent = 'Offline';
+            }
+        }
+
+        // ================= DAFTAR SISWA DEFAULT =================
         const defaultStudents = [
             "AIRA ALFANISA",
             "ALVARO ABU RIZIQ",
@@ -1587,7 +1828,7 @@
         function refreshAttendanceData() {
             showLoading('Memuat ulang data...');
             loadAttendanceForDate(selectedDate).then(() => {
-                showToast('success', 'Data Dimuat Ulang', 'Data presensiberhasil dimuat ulang');
+                showToast('success', 'Data Dimuat Ulang', 'Data presensi berhasil dimuat ulang');
             });
         }
 
@@ -1596,11 +1837,15 @@
             initApp();
             setupEventListeners();
             initKeyboardShortcuts();
+            initSupabaseRealtime();
         });
 
-        function initApp() {
+        async function initApp() {
             updateDateTime();
             setInterval(updateDateTime, 1000);
+
+            // Load students from database
+            await loadStudentsFromDB();
 
             const today = new Date();
             const formattedToday = formatDateInput(today);
@@ -1810,7 +2055,7 @@
             });
         }
 
-        function tambahSiswaBaru() {
+        async function tambahSiswaBaru() {
             const nameInput = document.getElementById('newStudentName');
             const newName = nameInput.value.trim();
 
@@ -1824,22 +2069,39 @@
                 return;
             }
 
-            // Save undo data
-            const undoAction = () => {
-                students = students.filter(s => s !== newName);
-                generateStudentCards();
+            try {
+                showLoading('Menambah siswa...');
+                
+                // Add to database
+                await addStudentToDB(newName);
+                
+                // Save undo data
+                const undoAction = async () => {
+                    try {
+                        await deleteStudentFromDB(newName);
+                        await loadStudentsFromDB();
+                        generateStudentCards();
+                        document.getElementById('studentsListContainer').innerHTML = generateStudentsListHTML();
+                        addDeleteEventListeners();
+                    } catch (error) {
+                        showToast('error', 'Error', 'Gagal membatalkan penambahan siswa');
+                    }
+                };
+
+                // Update local data
+                students.push(newName);
                 document.getElementById('studentsListContainer').innerHTML = generateStudentsListHTML();
+                nameInput.value = '';
                 addDeleteEventListeners();
-            };
+                generateStudentCards();
 
-            students.push(newName);
-            document.getElementById('studentsListContainer').innerHTML = generateStudentsListHTML();
-            nameInput.value = '';
-            addDeleteEventListeners();
-            generateStudentCards();
-
-            showToast('success', 'Berhasil', `Siswa "${newName}" berhasil ditambahkan`);
-            showUndo(`Siswa "${newName}" ditambahkan`, undoAction);
+                hideLoading();
+                showToast('success', 'Berhasil', `Siswa "${newName}" berhasil ditambahkan`);
+                showUndo(`Siswa "${newName}" ditambahkan`, undoAction);
+            } catch (error) {
+                hideLoading();
+                showToast('error', 'Error', `Gagal menambah siswa: ${error.message}`);
+            }
         }
 
         function addDeleteEventListeners() {
@@ -1875,55 +2137,80 @@
             });
         }
 
-        function hapusSiswa(index) {
+        async function hapusSiswa(index) {
             const deletedStudent = students[index];
             const deletedData = { name: deletedStudent, index: index };
 
-            // Save undo action
-            const undoAction = () => {
-                students.splice(deletedData.index, 0, deletedData.name);
-                generateStudentCards();
+            try {
+                showLoading('Menghapus siswa...');
+
+                // Delete from database
+                await deleteStudentFromDB(deletedStudent);
+
+                // Save undo action
+                const undoAction = async () => {
+                    try {
+                        await addStudentToDB(deletedData.name);
+                        await loadStudentsFromDB();
+                        generateStudentCards();
+                        document.getElementById('studentsListContainer').innerHTML = generateStudentsListHTML();
+                        addDeleteEventListeners();
+                    } catch (error) {
+                        showToast('error', 'Error', 'Gagal membatalkan penghapusan siswa');
+                    }
+                };
+
+                // Update local data
+                students.splice(index, 1);
                 document.getElementById('studentsListContainer').innerHTML = generateStudentsListHTML();
                 addDeleteEventListeners();
-            };
+                generateStudentCards();
 
-            students.splice(index, 1);
-            document.getElementById('studentsListContainer').innerHTML = generateStudentsListHTML();
-            addDeleteEventListeners();
-            generateStudentCards();
-
-            showToast('success', 'Berhasil', `Siswa "${deletedStudent}" berhasil dihapus`);
-            showUndo(`Siswa "${deletedStudent}" dihapus`, undoAction);
+                hideLoading();
+                showToast('success', 'Berhasil', `Siswa "${deletedStudent}" berhasil dihapus`);
+                showUndo(`Siswa "${deletedStudent}" dihapus`, undoAction);
+            } catch (error) {
+                hideLoading();
+                showToast('error', 'Error', `Gagal menghapus siswa: ${error.message}`);
+            }
         }
 
         // ================= ENHANCED ABSENSI =================
         async function loadAttendanceForDate(date) {
-            const formattedDate = formatDate(date);
+            const formattedDate = formatDateForDB(date);
             showLoading('Memuat data presensi...');
 
             // Show skeleton loaders
             document.getElementById('students-container').innerHTML = generateSkeletonCards();
 
             try {
-                const res = await fetch(`${SHEETDB_URL}/search?Tanggal=${encodeURIComponent(formattedDate)}`);
-                if (!res.ok) throw new Error('Gagal memuat data');
+                const response = await fetch(`${SUPABASE_REST_URL}/attendance?tanggal=eq.${formattedDate}&select=*`, {
+                    method: 'GET',
+                    headers: SUPABASE_HEADERS
+                });
 
-                const data = await res.json();
+                if (!response.ok) {
+                    throw new Error('Gagal memuat data presensi');
+                }
+
+                const data = await response.json();
                 attendanceData = {};
 
                 if (Array.isArray(data) && data.length > 0) {
                     data.forEach(item => {
-                        if (item["Nama Siswa"] && item["Status Kehadiran"]) {
-                            attendanceData[item["Nama Siswa"]] = item["Status Kehadiran"];
+                        if (item.nama_siswa && item.status_kehadiran) {
+                            attendanceData[item.nama_siswa] = item.status_kehadiran;
                         }
                     });
 
+                    // Set default status untuk siswa yang belum ada datanya
                     students.forEach(student => {
                         if (!attendanceData[student]) {
                             attendanceData[student] = 'Alfa';
                         }
                     });
                 } else {
+                    // Jika tidak ada data, set semua siswa ke status Alfa
                     students.forEach(student => {
                         attendanceData[student] = 'Alfa';
                     });
@@ -1934,8 +2221,9 @@
                     generateStudentCards();
                     hideLoading();
                 }, 500);
-            } catch (e) {
-                console.error("Error loading attendance:", e);
+            } catch (error) {
+                console.error("Error loading attendance:", error);
+                // Fallback: set semua ke Alfa jika error
                 students.forEach(student => {
                     attendanceData[student] = 'Alfa';
                 });
@@ -2111,7 +2399,7 @@
         }
 
         async function submitAttendance() {
-            const formattedDate = formatDate(selectedDate);
+            const formattedDate = formatDateForDB(selectedDate);
             let sukses = 0, gagal = 0;
 
             showLoading('Mengirim data presensi...');
@@ -2121,45 +2409,36 @@
                 btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Mengirim...';
                 btn.disabled = true;
 
-                // Delete existing data
+                // Delete existing data for this date
                 try {
-                    const deleteRes = await fetch(`${SHEETDB_URL}/search?Tanggal=${encodeURIComponent(formattedDate)}`);
-                    if (deleteRes.ok) {
-                        const dataToDelete = await deleteRes.json();
-                        if (Array.isArray(dataToDelete) && dataToDelete.length > 0) {
-                            for (const item of dataToDelete) {
-                                if (item.id) {
-                                    await fetch(`${SHEETDB_URL}/id/${item.id}`, { method: 'DELETE' });
-                                    await new Promise(resolve => setTimeout(resolve, 200));
-                                }
-                            }
-                        }
-                    }
+                    await fetch(`${SUPABASE_REST_URL}/attendance?tanggal=eq.${formattedDate}`, {
+                        method: 'DELETE',
+                        headers: SUPABASE_HEADERS
+                    });
                 } catch (deleteError) {
                     console.error("Error deleting existing data:", deleteError);
                 }
 
                 // Send new data
                 const dataArr = students.map(nama => ({
-                    Tanggal: formattedDate,
-                    "Nama Siswa": nama,
-                    "Status Kehadiran": attendanceData[nama] || 'Alfa'
+                    tanggal: formattedDate,
+                    nama_siswa: nama,
+                    status_kehadiran: attendanceData[nama] || 'Alfa'
                 }));
 
-                const res = await fetch(SHEETDB_URL, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ data: dataArr })
+                const response = await fetch(`${SUPABASE_REST_URL}/attendance`, {
+                    method: 'POST',
+                    headers: SUPABASE_HEADERS,
+                    body: JSON.stringify(dataArr)
                 });
 
-                if (res.ok) {
-                    const result = await res.json();
-                    sukses = result.created || students.length;
+                if (response.ok) {
+                    sukses = students.length;
                 } else {
                     throw new Error('Gagal mengirim data batch');
                 }
-            } catch (e) {
-                console.error("Error saat mengirim data:", e);
+            } catch (error) {
+                console.error("Error saat mengirim data:", error);
                 gagal = students.length;
             } finally {
                 hideLoading();
@@ -2219,7 +2498,7 @@
         }
 
         async function loadRekapHarian(date) {
-            const formattedDate = formatDate(date);
+            const formattedDate = formatDateForDB(date);
             const resultDiv = document.getElementById('rekapHarianResult');
 
             if (isNaN(date.getTime())) {
@@ -2230,13 +2509,19 @@
             resultDiv.innerHTML = "<div class='loading'><i class='fas fa-spinner fa-spin'></i> Memuat data...</div>";
 
             try {
-                const res = await fetch(`${SHEETDB_URL}/search?Tanggal=${encodeURIComponent(formattedDate)}`);
-                if (!res.ok) throw new Error('Gagal memuat data');
+                const response = await fetch(`${SUPABASE_REST_URL}/attendance?tanggal=eq.${formattedDate}&select=*&order=nama_siswa.asc`, {
+                    method: 'GET',
+                    headers: SUPABASE_HEADERS
+                });
 
-                const data = await res.json();
+                if (!response.ok) {
+                    throw new Error('Gagal memuat data');
+                }
+
+                const data = await response.json();
 
                 if (!Array.isArray(data) || data.length === 0) {
-                    resultDiv.innerHTML = `<div class="no-data">Tidak ada data presensi untuk tanggal <b>${formattedDate}</b></div>`;
+                    resultDiv.innerHTML = `<div class="no-data">Tidak ada data presensi untuk tanggal <b>${formatDate(date)}</b></div>`;
                     return;
                 }
 
@@ -2260,7 +2545,7 @@
 
                 let nomor = 1;
                 for (let row of data) {
-                    const status = row["Status Kehadiran"] || "-";
+                    const status = row.status_kehadiran || "-";
                     const statusClass = `status-${status.toLowerCase() || ''}`;
 
                     const statusOption = statusOptions.find(opt => opt.value === status);
@@ -2269,7 +2554,7 @@
                     tableHTML += `
                         <tr class="${statusClass}">
                             <td>${nomor++}</td>
-                            <td>${row["Nama Siswa"] || "-"}</td>
+                            <td>${row.nama_siswa || "-"}</td>
                             <td>
                                 <span class="status-indicator ${indicatorClass}"></span>
                                 ${status}
@@ -2293,10 +2578,10 @@
                         });
                     }, 300);
                 });
-            } catch (e) {
+            } catch (error) {
                 resultDiv.innerHTML = `
                     <div class="no-data" style="color:#e74c3c">
-                        Gagal memuat data: ${e.message}
+                        Gagal memuat data: ${error.message}
                     </div>
                 `;
             }
@@ -2356,40 +2641,30 @@
             resultDiv.innerHTML = "<div class='loading'><i class='fas fa-spinner fa-spin'></i> Memuat data...</div>";
 
             try {
-                const res = await fetch(SHEETDB_URL);
-                if (!res.ok) throw new Error('Gagal memuat data');
+                // Get data for the specific month and year
+                const startDate = `${tahun}-${bulan}-01`;
+                const endDate = `${tahun}-${bulan}-31`;
 
-                const allData = await res.json();
-
-                if (!Array.isArray(allData) || allData.length === 0) {
-                    resultDiv.innerHTML = `<div class="no-data">Tidak ada data presensi</div>`;
-                    return;
-                }
-
-                const filteredData = allData.filter(row => {
-                    if (!row.Tanggal) return false;
-
-                    try {
-                        const [day, month, year] = row.Tanggal.split('-');
-                        return month === bulan && year === tahun;
-                    } catch {
-                        return false;
-                    }
+                const response = await fetch(`${SUPABASE_REST_URL}/attendance?tanggal=gte.${startDate}&tanggal=lte.${endDate}&select=*&order=nama_siswa.asc,tanggal.asc`, {
+                    method: 'GET',
+                    headers: SUPABASE_HEADERS
                 });
 
-                if (filteredData.length === 0) {
-                    resultDiv.innerHTML = `
-                        <div class="no-data">
-                            Tidak ada data presensi untuk bulan <b>${bulan}-${tahun}</b>
-                        </div>
-                    `;
+                if (!response.ok) {
+                    throw new Error('Gagal memuat data');
+                }
+
+                const allData = await response.json();
+
+                if (!Array.isArray(allData) || allData.length === 0) {
+                    resultDiv.innerHTML = `<div class="no-data">Tidak ada data presensi untuk bulan <b>${bulan}-${tahun}</b></div>`;
                     return;
                 }
 
                 const siswaMap = {};
-                for (let row of filteredData) {
-                    const nama = row["Nama Siswa"];
-                    const status = row["Status Kehadiran"];
+                for (let row of allData) {
+                    const nama = row.nama_siswa;
+                    const status = row.status_kehadiran;
 
                     if (!nama) continue;
 
@@ -2484,10 +2759,14 @@
                         });
                     }, 300);
                 });
-            } catch (e) {
+
+                // Store additional data for detailed export
+                window.rekapDetailForExport = allData;
+                window.rekapBulanTahun = { bulan, tahun };
+            } catch (error) {
                 resultDiv.innerHTML = `
                     <div class="no-data" style="color:#e74c3c">
-                        Gagal memuat data: ${e.message}
+                        Gagal memuat data: ${error.message}
                     </div>
                 `;
             }
@@ -2503,28 +2782,13 @@
             showLoading('Membuat file Excel...');
 
             try {
-                const bulan = document.getElementById('rekapBulan').value;
-                const tahun = document.getElementById('rekapTahun').value;
+                const { bulan, tahun } = window.rekapBulanTahun;
                 const bulanNames = {
                     '01': 'Januari', '02': 'Februari', '03': 'Maret', '04': 'April',
                     '05': 'Mei', '06': 'Juni', '07': 'Juli', '08': 'Agustus',
                     '09': 'September', '10': 'Oktober', '11': 'November', '12': 'Desember'
                 };
                 const bulanTahun = `${bulanNames[bulan]} ${tahun}`;
-
-                // Ambil data detail untuk sheet kedua
-                const res = await fetch(SHEETDB_URL);
-                const allData = await res.json();
-
-                const filteredData = allData.filter(row => {
-                    if (!row.Tanggal) return false;
-                    try {
-                        const [day, month, year] = row.Tanggal.split('-');
-                        return month === bulan && year === tahun;
-                    } catch {
-                        return false;
-                    }
-                });
 
                 // Buat workbook Excel
                 const wb = XLSX.utils.book_new();
@@ -2564,100 +2828,101 @@
                 ];
 
                 // =================== SHEET 2: REKAP HARIAN ===================
-                const ws2 = XLSX.utils.json_to_sheet([]);
+                if (window.rekapDetailForExport && window.rekapDetailForExport.length > 0) {
+                    const ws2 = XLSX.utils.json_to_sheet([]);
 
-                const tanggalSet = new Set();
-                filteredData.forEach(row => {
-                    if (row.Tanggal) tanggalSet.add(row.Tanggal);
-                });
-                const tanggalArray = Array.from(tanggalSet).sort((a, b) => {
-                    const [dayA, monthA, yearA] = a.split('-');
-                    const [dayB, monthB, yearB] = b.split('-');
-                    const dateA = new Date(yearA, monthA - 1, dayA);
-                    const dateB = new Date(yearB, monthB - 1, dayB);
-                    return dateA - dateB;
-                });
-
-                const siswaDataHarian = {};
-                filteredData.forEach(row => {
-                    const nama = row["Nama Siswa"];
-                    const tanggal = row.Tanggal;
-                    const status = row["Status Kehadiran"];
-
-                    if (!nama || !tanggal) return;
-
-                    if (!siswaDataHarian[nama]) {
-                        siswaDataHarian[nama] = {};
-                    }
-
-                    let statusSingkat = 'A';
-                    if (status === 'Hadir') statusSingkat = 'H';
-                    else if (status === 'Izin') statusSingkat = 'I';
-                    else if (status === 'Sakit') statusSingkat = 'S';
-
-                    siswaDataHarian[nama][tanggal] = statusSingkat;
-                });
-
-                const headerRow = ["No.", "Nama Siswa", ...tanggalArray.map(tgl => {
-                    const [day, month, year] = tgl.split('-');
-                    return `${day}-${month}`;
-                })];
-
-                XLSX.utils.sheet_add_aoa(ws2, [
-                    ["SD NEGERI 1 PASIRPOGOR"],
-                    ["REKAP BULANAN DAFTAR HADIR SISWA KELAS 5"],
-                    [`BULAN : ${bulanTahun}`],
-                    [], [], // 2 Baris kosong
-                    headerRow
-                ], { origin: "A1" });
-
-                const dataRows = [];
-                const sortedSiswa = Object.keys(siswaDataHarian).sort();
-
-                sortedSiswa.forEach((nama, index) => {
-                    const row = [index + 1, nama];
-                    tanggalArray.forEach(tanggal => {
-                        row.push(siswaDataHarian[nama][tanggal] || '-');
+                    // Get unique dates and sort them
+                    const tanggalSet = new Set();
+                    window.rekapDetailForExport.forEach(row => {
+                        if (row.tanggal) tanggalSet.add(row.tanggal);
                     });
-                    dataRows.push(row);
-                });
+                    const tanggalArray = Array.from(tanggalSet).sort();
 
-                XLSX.utils.sheet_add_aoa(ws2, dataRows, { origin: "A7" });
+                    // Group data by student and date
+                    const siswaDataHarian = {};
+                    window.rekapDetailForExport.forEach(row => {
+                        const nama = row.nama_siswa;
+                        const tanggal = row.tanggal;
+                        const status = row.status_kehadiran;
 
-                const startRow2 = 7 + dataRows.length + 2;
-                const colCount = tanggalArray.length + 2;
+                        if (!nama || !tanggal) return;
 
-                XLSX.utils.sheet_add_aoa(ws2, [
-                    [""], [""], // 2 Baris kosong
-                    ["", "", "", "", "", "", "Mengetahui"],
-                    ["", "", "", "", "", "", "Walikelas 5"],
-                    [""], [""], [""], [""], // 4 Baris kosong
-                    ["", "", "", "", "", "", "Lita Purnama, S.Pd"]
-                ], { origin: `A${startRow2}` });
+                        if (!siswaDataHarian[nama]) {
+                            siswaDataHarian[nama] = {};
+                        }
 
-                const colWidths2 = [{ wch: 5 }];
+                        let statusSingkat = 'A';
+                        if (status === 'Hadir') statusSingkat = 'H';
+                        else if (status === 'Izin') statusSingkat = 'I';
+                        else if (status === 'Sakit') statusSingkat = 'S';
 
-                let maxNamaLength = 12;
-                sortedSiswa.forEach(nama => {
-                    if (nama.length > maxNamaLength) {
-                        maxNamaLength = nama.length;
+                        siswaDataHarian[nama][tanggal] = statusSingkat;
+                    });
+
+                    const headerRow = ["No.", "Nama Siswa", ...tanggalArray.map(tgl => {
+                        const date = new Date(tgl + 'T00:00:00');
+                        const day = String(date.getDate()).padStart(2, '0');
+                        const month = String(date.getMonth() + 1).padStart(2, '0');
+                        return `${day}-${month}`;
+                    })];
+
+                    XLSX.utils.sheet_add_aoa(ws2, [
+                        ["SD NEGERI 1 PASIRPOGOR"],
+                        ["REKAP BULANAN DAFTAR HADIR SISWA KELAS 5"],
+                        [`BULAN : ${bulanTahun}`],
+                        [], [], // 2 Baris kosong
+                        headerRow
+                    ], { origin: "A1" });
+
+                    const dataRows = [];
+                    const sortedSiswa = Object.keys(siswaDataHarian).sort();
+
+                    sortedSiswa.forEach((nama, index) => {
+                        const row = [index + 1, nama];
+                        tanggalArray.forEach(tanggal => {
+                            row.push(siswaDataHarian[nama][tanggal] || '-');
+                        });
+                        dataRows.push(row);
+                    });
+
+                    XLSX.utils.sheet_add_aoa(ws2, dataRows, { origin: "A7" });
+
+                    const startRow2 = 7 + dataRows.length + 2;
+                    const colCount = tanggalArray.length + 2;
+
+                    XLSX.utils.sheet_add_aoa(ws2, [
+                        [""], [""], // 2 Baris kosong
+                        ["", "", "", "", "", "", "Mengetahui"],
+                        ["", "", "", "", "", "", "Walikelas 5"],
+                        [""], [""], [""], [""], // 4 Baris kosong
+                        ["", "", "", "", "", "", "Lita Purnama, S.Pd"]
+                    ], { origin: `A${startRow2}` });
+
+                    const colWidths2 = [{ wch: 5 }];
+
+                    let maxNamaLength = 12;
+                    sortedSiswa.forEach(nama => {
+                        if (nama.length > maxNamaLength) {
+                            maxNamaLength = nama.length;
+                        }
+                    });
+                    colWidths2.push({ wch: maxNamaLength + 2 });
+
+                    for (let i = 0; i < tanggalArray.length; i++) {
+                        colWidths2.push({ wch: 6 });
                     }
-                });
-                colWidths2.push({ wch: maxNamaLength + 2 });
+                    ws2['!cols'] = colWidths2;
 
-                for (let i = 0; i < tanggalArray.length; i++) {
-                    colWidths2.push({ wch: 6 });
+                    ws2['!merges'] = [
+                        { s: { r: 0, c: 0 }, e: { r: 0, c: colCount - 1 } },
+                        { s: { r: 1, c: 0 }, e: { r: 1, c: colCount - 1 } },
+                        { s: { r: 2, c: 0 }, e: { r: 2, c: colCount - 1 } }
+                    ];
+
+                    XLSX.utils.book_append_sheet(wb, ws2, "Rekap Harian");
                 }
-                ws2['!cols'] = colWidths2;
-
-                ws2['!merges'] = [
-                    { s: { r: 0, c: 0 }, e: { r: 0, c: colCount - 1 } },
-                    { s: { r: 1, c: 0 }, e: { r: 1, c: colCount - 1 } },
-                    { s: { r: 2, c: 0 }, e: { r: 2, c: colCount - 1 } }
-                ];
 
                 XLSX.utils.book_append_sheet(wb, ws1, "Rekap Jumlah");
-                XLSX.utils.book_append_sheet(wb, ws2, "Rekap Harian");
 
                 const fileName = `Rekap_Absensi_${bulanNames[bulan]}_${tahun}.xlsx`;
                 XLSX.writeFile(wb, fileName);
